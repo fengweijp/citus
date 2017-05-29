@@ -810,7 +810,7 @@ InsertShardRow(Oid relationId, uint64 shardId, char storageType,
  * a new row with the given values into that system catalog. If placementId is
  * INVALID_PLACEMENT_ID, a new placement id will be assigned.
  */
-void
+uint64
 InsertShardPlacementRow(uint64 shardId, uint64 placementId,
 						char shardState, uint64 shardLength,
 						char *nodeName, uint32 nodePort)
@@ -849,6 +849,8 @@ InsertShardPlacementRow(uint64 shardId, uint64 placementId,
 
 	CommandCounterIncrement();
 	heap_close(pgDistShardPlacement, RowExclusiveLock);
+
+	return placementId;
 }
 
 

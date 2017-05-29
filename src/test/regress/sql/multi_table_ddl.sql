@@ -80,7 +80,7 @@ ALTER SEQUENCE standalone_sequence OWNED BY testserialtable.group_id;
 -- an edge case, but it's OK to change an owner to the same distributed table
 ALTER SEQUENCE testserialtable_id_seq OWNED BY testserialtable.id;
 
--- verify sequence was created on worker
+-- verify sequence is not added to worker
 \c - - - :worker_1_port
 \ds
 

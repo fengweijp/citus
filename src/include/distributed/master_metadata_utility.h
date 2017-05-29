@@ -83,9 +83,9 @@ extern List * BuildShardPlacementList(ShardInterval *shardInterval);
 extern void InsertShardRow(Oid relationId, uint64 shardId, char storageType,
 						   text *shardMinValue, text *shardMaxValue);
 extern void DeleteShardRow(uint64 shardId);
-extern void InsertShardPlacementRow(uint64 shardId, uint64 placementId,
-									char shardState, uint64 shardLength,
-									char *nodeName, uint32 nodePort);
+extern uint64 InsertShardPlacementRow(uint64 shardId, uint64 placementId,
+									  char shardState, uint64 shardLength,
+									  char *nodeName, uint32 nodePort);
 extern void InsertIntoPgDistPartition(Oid relationId, char distributionMethod,
 									  Var *distributionColumn, uint32 colocationId,
 									  char replicationModel);

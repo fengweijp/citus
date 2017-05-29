@@ -359,18 +359,12 @@ INSERT INTO data_load_test VALUES (132, 'hello');
 INSERT INTO data_load_test VALUES (243, 'world');
 -- table must be empty when using append- or range-partitioning
 SELECT create_distributed_table('data_load_test', 'col1', 'append');
-ERROR:  cannot distribute relation "data_load_test"
-DETAIL:  Relation "data_load_test" contains data.
-HINT:  Empty your table before distributing it.
+ERROR:  table "data_load_test" is not empty
 SELECT create_distributed_table('data_load_test', 'col1', 'range');
-ERROR:  cannot distribute relation "data_load_test"
-DETAIL:  Relation "data_load_test" contains data.
-HINT:  Empty your table before distributing it.
+ERROR:  table "data_load_test" is not empty
 -- table must be empty when using master_create_distributed_table (no shards created)
 SELECT master_create_distributed_table('data_load_test', 'col1', 'hash');
-ERROR:  cannot distribute relation "data_load_test"
-DETAIL:  Relation "data_load_test" contains data.
-HINT:  Empty your table before distributing it.
+ERROR:  table "data_load_test" is not empty
 -- create_distributed_table creates shards and copies data into the distributed table
 SELECT create_distributed_table('data_load_test', 'col1');
 NOTICE:  Copying data from local table...
@@ -531,6 +525,12 @@ CREATE UNLOGGED TABLE unlogged_table
 	value text
 );
 SELECT create_distributed_table('unlogged_table', 'key');
+
+-- Test rollback of create table
+BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
+SELECT create_distributed_table('rollback_table','id');
+>>>>>>> Make create_distributed_table transactional
  create_distributed_table 
 --------------------------
  
@@ -551,4 +551,89 @@ SELECT relpersistence FROM pg_class WHERE relname LIKE 'unlogged_table_%';
  u
  u
 (4 rows)
+
+ROLLBACK;
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+-- Again there should be no table on the worker node
+BEGIN;
+SELECT create_distributed_table('rollback_table','id');
+ERROR:  relation "rollback_table" does not exist
+LINE 1: SELECT create_distributed_table('rollback_table','id');
+                                        ^
+INSERT INTO rollback_table VALUES(1, 'Name_1');
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK;
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+BEGIN;
+SELECT create_distributed_table('rollback_table','id');
+ERROR:  relation "rollback_table" does not exist
+LINE 1: SELECT create_distributed_table('rollback_table','id');
+                                        ^
+\copy tt1 from stdin delimiter ','
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+1
+2
+\.
+invalid command \.
+ROLLBACK;
+ERROR:  syntax error at or near "1"
+LINE 1: 1
+        ^
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+CREATE TABLE tt2(id int);
+SELECT create_distributed_table('tt2','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO tt1 VALUES(1);
+INSERT INTO tt2 SELECT * FROM tt1 WHERE id = 1;
+ROLLBACK;
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d tt1*
+\d tt2*
+\c - - - :master_port
+-- It is known that creating a table with master_create_empty_shard is not
+-- transactional operation.
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id','append');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+SELECT master_create_empty_shard('tt1');
+ master_create_empty_shard 
+---------------------------
+                    360366
+(1 row)
+
+ROLLBACK;
+-- Table exists on the worker node.
+\c - - - :worker_1_port
+\d tt1*
+  Table "public.tt1_360366"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ id     | integer | 
 

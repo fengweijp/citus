@@ -293,3 +293,66 @@ SELECT * FROM master_get_table_ddl_events('unlogged_table');
 
 \c - - - :worker_1_port
 SELECT relpersistence FROM pg_class WHERE relname LIKE 'unlogged_table_%';
+
+-- Test rollback of create table
+BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
+SELECT create_distributed_table('rollback_table','id');
+ROLLBACK;
+
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+
+-- Again there should be no table on the worker node
+BEGIN;
+SELECT create_distributed_table('rollback_table','id');
+INSERT INTO rollback_table VALUES(1, 'Name_1');
+ROLLBACK;
+
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+
+BEGIN;
+SELECT create_distributed_table('rollback_table','id');
+\copy tt1 from stdin delimiter ','
+1
+2
+\.
+ROLLBACK;
+
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d rollback_table*
+\c - - - :master_port
+
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+CREATE TABLE tt2(id int);
+SELECT create_distributed_table('tt2','id');
+INSERT INTO tt1 VALUES(1);
+INSERT INTO tt2 SELECT * FROM tt1 WHERE id = 1;
+ROLLBACK;
+
+
+-- Table should not exist on the worker node
+\c - - - :worker_1_port
+\d tt1*
+\d tt2*
+\c - - - :master_port
+
+-- It is known that creating a table with master_create_empty_shard is not
+-- transactional operation.
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id','append');
+SELECT master_create_empty_shard('tt1');
+ROLLBACK;
+
+-- Table exists on the worker node.
+\c - - - :worker_1_port
+\d tt1*

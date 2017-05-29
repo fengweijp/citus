@@ -495,8 +495,6 @@ GetTableCreationCommands(Oid relationId, bool includeSequenceDefaults)
 {
 	List *tableDDLEventList = NIL;
 	char tableType = 0;
-	List *sequenceIdlist = getOwnedSequences(relationId);
-	ListCell *sequenceIdCell;
 	char *tableSchemaDef = NULL;
 	char *tableColumnOptionsDef = NULL;
 	char *createSchemaCommand = NULL;
@@ -532,15 +530,6 @@ GetTableCreationCommands(Oid relationId, bool includeSequenceDefaults)
 	if (createSchemaCommand != NULL)
 	{
 		tableDDLEventList = lappend(tableDDLEventList, createSchemaCommand);
-	}
-
-	/* create sequences if needed */
-	foreach(sequenceIdCell, sequenceIdlist)
-	{
-		Oid sequenceRelid = lfirst_oid(sequenceIdCell);
-		char *sequenceDef = pg_get_sequencedef_string(sequenceRelid);
-
-		tableDDLEventList = lappend(tableDDLEventList, sequenceDef);
 	}
 
 	/* fetch table schema and column option definitions */
