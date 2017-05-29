@@ -73,7 +73,8 @@ int ReplicationModel = REPLICATION_MODEL_COORDINATOR;
 static void CreateReferenceTable(Oid distributedRelationId);
 static void ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
 									  char distributionMethod, char replicationModel,
-									  uint32 colocationId, bool requireEmpty);
+									  uint32 colocationId, bool requireEmpty,
+									  bool *emptyTable);
 static char LookupDistributionMethod(Oid distributionMethodOid);
 static Oid SupportFunctionForColumn(Var *partitionColumn, Oid accessMethodId,
 									int16 supportFunctionNumber);
@@ -109,6 +110,7 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 	char *distributionColumnName = text_to_cstring(distributionColumnText);
 	char distributionMethod = LookupDistributionMethod(distributionMethodOid);
 	bool requireEmpty = true;
+	bool *emptyTable = palloc(sizeof(bool));
 
 	EnsureCoordinator();
 	CheckCitusVersion(ERROR);
@@ -125,7 +127,7 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 
 	ConvertToDistributedTable(distributedRelationId, distributionColumnName,
 							  distributionMethod, REPLICATION_MODEL_COORDINATOR,
-							  INVALID_COLOCATION_ID, requireEmpty);
+							  INVALID_COLOCATION_ID, requireEmpty, emptyTable);
 
 	PG_RETURN_VOID();
 }
@@ -183,6 +185,7 @@ create_distributed_table(PG_FUNCTION_ARGS)
 	if (distributionMethod != DISTRIBUTE_BY_HASH)
 	{
 		bool requireEmpty = true;
+		bool *emptyTable = palloc(sizeof(bool));
 
 		if (ReplicationModel != REPLICATION_MODEL_COORDINATOR)
 		{
@@ -193,7 +196,7 @@ create_distributed_table(PG_FUNCTION_ARGS)
 
 		ConvertToDistributedTable(relationId, distributionColumnName,
 								  distributionMethod, REPLICATION_MODEL_COORDINATOR,
-								  INVALID_COLOCATION_ID, requireEmpty);
+								  INVALID_COLOCATION_ID, requireEmpty, emptyTable);
 		PG_RETURN_VOID();
 	}
 
@@ -240,6 +243,7 @@ CreateReferenceTable(Oid relationId)
 	int replicationFactor = 0;
 	char *distributionColumnName = NULL;
 	bool requireEmpty = true;
+	bool *emptyTable = palloc(sizeof(bool));
 	char relationKind = 0;
 
 	EnsureCoordinator();
@@ -270,10 +274,10 @@ CreateReferenceTable(Oid relationId)
 	/* first, convert the relation into distributed relation */
 	ConvertToDistributedTable(relationId, distributionColumnName,
 							  DISTRIBUTE_BY_NONE, REPLICATION_MODEL_2PC, colocationId,
-							  requireEmpty);
+							  requireEmpty, emptyTable);
 
 	/* now, create the single shard replicated to all nodes */
-	CreateReferenceTableShard(relationId);
+	CreateReferenceTableShard(relationId, *emptyTable);
 
 	CreateTableMetadataOnWorkers(relationId);
 
@@ -289,18 +293,20 @@ CreateReferenceTable(Oid relationId)
  * ConvertToDistributedTable converts the given regular PostgreSQL table into a
  * distributed table. First, it checks if the given table can be distributed,
  * then it creates related tuple in pg_dist_partition. If requireEmpty is true,
- * this function errors out when presented with a relation containing rows.
+ * this function errors out when presented with a relation containing rows. Since
+ * emptiness of the table can not be queried locally after adding the table to
+ * pg_dist_partition, function also checks and saves that information.
  *
  * XXX: We should perform more checks here to see if this table is fit for
  * partitioning. At a minimum, we should validate the following: (i) this node
  * runs as the master node, (ii) table does not make use of the inheritance
- * mechanism, (iii) table does not own columns that are sequences, and (iv)
- * table does not have collated columns.
+ * mechanism and (iii) table does not have collated columns.
  */
 static void
 ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
 						  char distributionMethod, char replicationModel,
-						  uint32 colocationId, bool requireEmpty)
+						  uint32 colocationId, bool requireEmpty,
+						  bool *emptyTable)
 {
 	Relation relation = NULL;
 	TupleDesc relationDesc = NULL;
@@ -351,7 +357,8 @@ ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
 	}
 
 	/* check that table is empty if that is required */
-	if (requireEmpty && !LocalTableEmpty(relationId))
+	*emptyTable = LocalTableEmpty(relationId);
+	if (requireEmpty && !(*emptyTable))
 	{
 		ereport(ERROR, (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 						errmsg("cannot distribute relation \"%s\"",
@@ -602,6 +609,7 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	Oid sourceRelationId = InvalidOid;
 	Oid distributionColumnType = InvalidOid;
 	bool requireEmpty = true;
+	bool *emptyTable = palloc(sizeof(bool));
 	char relationKind = 0;
 
 	/* get an access lock on the relation to prevent DROP TABLE and ALTER TABLE */
@@ -654,7 +662,7 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 
 	/* create distributed table metadata */
 	ConvertToDistributedTable(relationId, distributionColumnName, DISTRIBUTE_BY_HASH,
-							  ReplicationModel, colocationId, requireEmpty);
+							  ReplicationModel, colocationId, requireEmpty, emptyTable);
 
 	/*
 	 * Ensure schema exists on each worker node. We can not this function
@@ -671,11 +679,12 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 		CheckDistributionColumnType(sourceRelationId, relationId);
 
 
-		CreateColocatedShards(relationId, sourceRelationId);
+		CreateColocatedShards(relationId, sourceRelationId, *emptyTable);
 	}
 	else
 	{
-		CreateShardsWithRoundRobinPolicy(relationId, shardCount, replicationFactor);
+		CreateShardsWithRoundRobinPolicy(relationId, shardCount, replicationFactor,
+										 *emptyTable);
 	}
 
 	/* copy over data for regular relations */
@@ -705,9 +714,9 @@ EnsureSchemaExistsOnAllNodes(Oid relationId)
 	char *schemaName = get_namespace_name(schemaId);
 	const char *createSchemaDDL = CreateSchemaDDLCommand(schemaId);
 
-	if(createSchemaDDL != NULL)
+	if (createSchemaDDL != NULL)
 	{
-		appendStringInfo(applySchemaCreationDDL,"%s", createSchemaDDL);
+		appendStringInfo(applySchemaCreationDDL, "%s", createSchemaDDL);
 
 		foreach(workerNodeCell, workerNodeList)
 		{
@@ -716,11 +725,12 @@ EnsureSchemaExistsOnAllNodes(Oid relationId)
 			uint32 nodePort = workerNode->workerPort;
 			bool commandExecuted = false;
 
-			commandExecuted = ExecuteRemoteCommand(nodeName, nodePort, applySchemaCreationDDL);
+			commandExecuted = ExecuteRemoteCommand(nodeName, nodePort,
+												   applySchemaCreationDDL);
 			if (!commandExecuted)
 			{
 				ereport(ERROR, (errmsg("could not create schema %s on node %s:%d",
-												   schemaName, nodeName, nodePort)));
+									   schemaName, nodeName, nodePort)));
 			}
 		}
 	}

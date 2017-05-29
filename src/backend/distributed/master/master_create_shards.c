@@ -68,10 +68,14 @@ master_create_worker_shards(PG_FUNCTION_ARGS)
 
 	Oid distributedTableId = ResolveRelationId(tableNameText);
 
+	/* do not add any data */
+	bool emptyTable = true;
+
 	EnsureCoordinator();
 	CheckCitusVersion(ERROR);
 
-	CreateShardsWithRoundRobinPolicy(distributedTableId, shardCount, replicationFactor);
+	CreateShardsWithRoundRobinPolicy(distributedTableId, shardCount, replicationFactor,
+									 emptyTable);
 
 	PG_RETURN_VOID();
 }
@@ -88,7 +92,7 @@ master_create_worker_shards(PG_FUNCTION_ARGS)
  */
 void
 CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
-								 int32 replicationFactor)
+								 int32 replicationFactor, bool emptyTable)
 {
 	char *relationOwner = NULL;
 	char shardStorageType = 0;
@@ -220,7 +224,8 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 		LockShardDistributionMetadata(shardId, ExclusiveLock);
 
 		CreateShardPlacements(distributedTableId, shardId, ddlCommandList, relationOwner,
-							  workerNodeList, roundRobinNodeIndex, replicationFactor);
+							  workerNodeList, roundRobinNodeIndex, replicationFactor,
+							  emptyTable);
 
 		InsertShardRow(distributedTableId, shardId, shardStorageType,
 					   minHashTokenText, maxHashTokenText);
@@ -241,7 +246,7 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
  * the source relation.
  */
 void
-CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId)
+CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool emptyTable)
 {
 	char *targetTableRelationOwner = NULL;
 	char targetShardStorageType = 0;
@@ -315,7 +320,8 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId)
 											 sourceNodePort, sourceShardIndex, newShardId,
 											 targetTableRelationOwner,
 											 targetTableDDLEvents,
-											 targetTableForeignConstraintCommands);
+											 targetTableForeignConstraintCommands,
+											 emptyTable);
 			if (created)
 			{
 				const RelayFileState shardState = FILE_FINALIZED;
@@ -346,7 +352,7 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId)
  * Also, the shard is replicated to the all active nodes in the cluster.
  */
 void
-CreateReferenceTableShard(Oid distributedTableId)
+CreateReferenceTableShard(Oid distributedTableId, bool emptyTable)
 {
 	char *relationOwner = NULL;
 	char shardStorageType = 0;
@@ -410,7 +416,8 @@ CreateReferenceTableShard(Oid distributedTableId)
 	LockShardDistributionMetadata(shardId, ExclusiveLock);
 
 	CreateShardPlacements(distributedTableId, shardId, ddlCommandList, relationOwner,
-						  workerNodeList, workerStartIndex, replicationFactor);
+						  workerNodeList, workerStartIndex, replicationFactor,
+						  emptyTable);
 
 	InsertShardRow(distributedTableId, shardId, shardStorageType, shardMinValue,
 				   shardMaxValue);

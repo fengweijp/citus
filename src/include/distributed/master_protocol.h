@@ -108,15 +108,18 @@ extern char ShardStorageType(Oid relationId);
 extern void CheckDistributedTable(Oid relationId);
 extern void CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,
 								  char *newPlacementOwner, List *workerNodeList,
-								  int workerStartIndex, int replicationFactor);
+								  int workerStartIndex, int replicationFactor,
+								  bool emptyTable);
 extern uint64 UpdateShardStatistics(int64 shardId);
 extern void CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
-											 int32 replicationFactor);
-extern void CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId);
-extern void CreateReferenceTableShard(Oid distributedTableId);
+											 int32 replicationFactor, bool emptyTable);
+extern void CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId,
+								  bool emptyTable);
+extern void CreateReferenceTableShard(Oid distributedTableId, bool emptyTable);
 extern bool WorkerCreateShard(Oid relationId, char *nodeName, uint32 nodePort,
 							  int shardIndex, uint64 shardId, char *newShardOwner,
-							  List *ddlCommandList, List *foreignConstraintCommadList);
+							  List *ddlCommandList, List *foreignConstraintCommadList,
+							  bool emptyTable);
 extern Oid ForeignConstraintGetReferencedTableId(char *queryString);
 extern void CheckHashPartitionedTable(Oid distributedTableId);
 extern void CheckTableSchemaNameForDrop(Oid relationId, char **schemaName,

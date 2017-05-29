@@ -89,6 +89,7 @@ master_create_empty_shard(PG_FUNCTION_ARGS)
 	char *relationOwner = TableOwner(relationId);
 	char replicationModel = REPLICATION_MODEL_INVALID;
 	bool includeSequenceDefaults = false;
+	bool emptyTable = true;
 
 	CheckCitusVersion(ERROR);
 
@@ -185,7 +186,7 @@ master_create_empty_shard(PG_FUNCTION_ARGS)
 	}
 
 	CreateShardPlacements(relationId, shardId, ddlEventList, relationOwner,
-						  candidateNodeList, 0, ShardReplicationFactor);
+						  candidateNodeList, 0, ShardReplicationFactor, emptyTable);
 
 	InsertShardRow(relationId, shardId, storageType, nullMinValue, nullMaxValue);
 
@@ -373,7 +374,8 @@ CheckDistributedTable(Oid relationId)
 void
 CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,
 					  char *newPlacementOwner, List *workerNodeList,
-					  int workerStartIndex, int replicationFactor)
+					  int workerStartIndex, int replicationFactor,
+					  bool emptyTable)
 {
 	int attemptCount = replicationFactor;
 	int workerNodeCount = list_length(workerNodeList);
@@ -399,7 +401,7 @@ CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,
 
 		created = WorkerCreateShard(relationId, nodeName, nodePort, shardIndex,
 									shardId, newPlacementOwner, ddlEventList,
-									foreignConstraintCommandList);
+									foreignConstraintCommandList, emptyTable);
 		if (created)
 		{
 			const RelayFileState shardState = FILE_FINALIZED;
@@ -438,7 +440,8 @@ CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,
 bool
 WorkerCreateShard(Oid relationId, char *nodeName, uint32 nodePort,
 				  int shardIndex, uint64 shardId, char *newShardOwner,
-				  List *ddlCommandList, List *foreignConstraintCommandList)
+				  List *ddlCommandList, List *foreignConstraintCommandList,
+				  bool emptyTable)
 {
 	Oid schemaId = get_rel_namespace(relationId);
 	char *schemaName = get_namespace_name(schemaId);
