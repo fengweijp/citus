@@ -84,6 +84,7 @@ static void CreateHashDistributedTable(Oid relationId, char *distributionColumnN
 static Oid ColumnType(Oid relationId, char *columnName);
 static void CopyLocalDataIntoShards(Oid relationId);
 static List * TupleDescColumnNameList(TupleDesc tupleDescriptor);
+static void EnsureSchemaExistsOnAllNodes(Oid relationId);
 
 /* exports for SQL callable functions */
 PG_FUNCTION_INFO_V1(master_create_distributed_table);
@@ -655,6 +656,13 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	ConvertToDistributedTable(relationId, distributionColumnName, DISTRIBUTE_BY_HASH,
 							  ReplicationModel, colocationId, requireEmpty);
 
+	/*
+	 * Ensure schema exists on each worker node. We can not this function
+	 * transactionally, since separate transactions don't know whether other
+	 * transactions already created the schema or not.
+	 */
+	EnsureSchemaExistsOnAllNodes(relationId);
+
 	/* create shards */
 	if (sourceRelationId != InvalidOid)
 	{
@@ -678,6 +686,44 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 
 	heap_close(pgDistColocation, NoLock);
 	relation_close(distributedRelation, NoLock);
+}
+
+
+/*
+ * EnsureSchemaExistsOnAllNodes connects to all nodes with citus extension user
+ * and creates the schema of the given relationId. The function errors out if the
+ * command cannot be executed in any of the worker nodes.
+ */
+static void
+EnsureSchemaExistsOnAllNodes(Oid relationId)
+{
+	List *workerNodeList = ActiveWorkerNodeList();
+	ListCell *workerNodeCell = NULL;
+	StringInfo applySchemaCreationDDL = makeStringInfo();
+
+	Oid schemaId = get_rel_namespace(relationId);
+	char *schemaName = get_namespace_name(schemaId);
+	const char *createSchemaDDL = CreateSchemaDDLCommand(schemaId);
+
+	if(createSchemaDDL != NULL)
+	{
+		appendStringInfo(applySchemaCreationDDL,"%s", createSchemaDDL);
+
+		foreach(workerNodeCell, workerNodeList)
+		{
+			WorkerNode *workerNode = (WorkerNode *) lfirst(workerNodeCell);
+			char *nodeName = workerNode->workerName;
+			uint32 nodePort = workerNode->workerPort;
+			bool commandExecuted = false;
+
+			commandExecuted = ExecuteRemoteCommand(nodeName, nodePort, applySchemaCreationDDL);
+			if (!commandExecuted)
+			{
+				ereport(ERROR, (errmsg("could not create schema %s on node %s:%d",
+												   schemaName, nodeName, nodePort)));
+			}
+		}
+	}
 }
 
 
