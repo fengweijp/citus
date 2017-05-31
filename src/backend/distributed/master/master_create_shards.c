@@ -84,31 +84,28 @@ master_create_worker_shards(PG_FUNCTION_ARGS)
 
 /*
  * CreateShardsWithRoundRobinPolicy creates empty shards for the given table
- * based on the specified number of initial shards. The function first gets a
- * list of candidate nodes and issues DDL commands on the nodes to create empty
- * shard placements on those nodes. The function then updates metadata on the
- * master node to make this shard (and its placements) visible. Note that the
- * function assumes the table is hash partitioned and calculates the min/max
- * hash token ranges for each shard, giving them an equal split of the hash space.
+ * based on the specified number of initial shards. The function first updates
+ * metadata on the coordinator node to make this shard (and its placements)
+ * visible. Note that the function assumes the table is hash partitioned and
+ * calculates the min/max hash token ranges for each shard, giving them an equal
+ * split of the hash space. Finally, function creates empty shard placements on
+ * worker nodes.
  */
 void
 CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 								 int32 replicationFactor, bool useExclusiveConnections)
 {
-	char *relationOwner = NULL;
 	char shardStorageType = 0;
 	List *workerNodeList = NIL;
-	List *ddlCommandList = NIL;
 	int32 workerNodeCount = 0;
 	uint32 placementAttemptCount = 0;
 	uint64 hashTokenIncrement = 0;
 	List *existingShardList = NIL;
 	int64 shardIndex = 0;
-	bool includeSequenceDefaults = false;
 	DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(distributedTableId);
-	List *connectionList = NIL;
-	ListCell *connectionCell = NULL;
 	bool createInSeparateTransaction = false;
+	bool colocatedShard = false;
+	List *insertedShardPlacements = NIL;
 
 	/* make sure table is hash partitioned */
 	CheckHashPartitionedTable(distributedTableId);
@@ -123,8 +120,6 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 
 	/* we plan to add shards: get an exclusive metadata lock */
 	LockRelationDistributionMetadata(distributedTableId, ExclusiveLock);
-
-	relationOwner = TableOwner(distributedTableId);
 
 	/* validate that shards haven't already been created for this table */
 	existingShardList = LoadShardList(distributedTableId);
@@ -175,9 +170,6 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 	/* make sure we don't process cancel signals until all shards are created */
 	HOLD_INTERRUPTS();
 
-	/* retrieve the DDL commands for the table */
-	ddlCommandList = GetTableDDLEvents(distributedTableId, includeSequenceDefaults);
-
 	workerNodeCount = list_length(workerNodeList);
 	if (replicationFactor > workerNodeCount)
 	{
@@ -208,7 +200,7 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 		int32 shardMinHashToken = INT32_MIN + (shardIndex * hashTokenIncrement);
 		int32 shardMaxHashToken = shardMinHashToken + (hashTokenIncrement - 1);
 		uint64 shardId = GetNextShardId();
-		List *currentConnectionList = NIL;
+		List *currentInsertedShardPlacements = NIL;
 
 		/* if we are at the last shard, make sure the max token value is INT_MAX */
 		if (shardIndex == (shardCount - 1))
@@ -231,26 +223,18 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 		InsertShardRow(distributedTableId, shardId, shardStorageType,
 					   minHashTokenText, maxHashTokenText);
 
-		currentConnectionList = CreateShardPlacements(distributedTableId, shardId,
-													  ddlCommandList, relationOwner,
-													  workerNodeList, roundRobinNodeIndex,
-													  replicationFactor,
-													  useExclusiveConnections,
-													  createInSeparateTransaction);
-
-		connectionList = list_concat(connectionList, currentConnectionList);
+		currentInsertedShardPlacements = InsertShardPlacementRows(distributedTableId,
+																  shardId,
+																  workerNodeList,
+																  roundRobinNodeIndex,
+																  replicationFactor);
+		insertedShardPlacements = list_concat(insertedShardPlacements,
+											  currentInsertedShardPlacements);
 	}
 
-	/*
-	 * According to connection API, we must unclaim connections to make them usable
-	 * again. Since the same connection must be used to create a shard and copying
-	 * data to it, we have to unclaim all connections.
-	 */
-	foreach(connectionCell, connectionList)
-	{
-		MultiConnection *connection = (MultiConnection *) lfirst(connectionCell);
-		UnclaimConnection(connection);
-	}
+	CreateShardsOnWorkers(distributedTableId, insertedShardPlacements,
+						  useExclusiveConnections, createInSeparateTransaction,
+						  colocatedShard);
 
 	if (QueryCancelPending)
 	{
@@ -270,17 +254,13 @@ void
 CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 					  useExclusiveConnections)
 {
-	char *targetTableRelationOwner = NULL;
 	char targetShardStorageType = 0;
 	List *existingShardList = NIL;
 	List *sourceShardIntervalList = NIL;
-	List *targetTableDDLEvents = NIL;
-	List *targetTableForeignConstraintCommands = NIL;
 	ListCell *sourceShardCell = NULL;
-	bool includeSequenceDefaults = false;
-	ListCell *connectionCell = NULL;
 	bool createInSeparateTransaction = false;
-	List *connectionList = NIL;
+	bool colocatedShard = true;
+	List *insertedShardPlacements = NIL;
 
 	/* make sure that tables are hash partitioned */
 	CheckHashPartitionedTable(targetRelationId);
@@ -314,10 +294,6 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 							   targetRelationName)));
 	}
 
-	targetTableRelationOwner = TableOwner(targetRelationId);
-	targetTableDDLEvents = GetTableDDLEvents(targetRelationId, includeSequenceDefaults);
-	targetTableForeignConstraintCommands = GetTableForeignConstraintCommands(
-		targetRelationId);
 	targetShardStorageType = ShardStorageType(targetRelationId);
 
 	foreach(sourceShardCell, sourceShardIntervalList)
@@ -326,7 +302,6 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 		uint64 sourceShardId = sourceShardInterval->shardId;
 		uint64 newShardId = GetNextShardId();
 		ListCell *sourceShardPlacementCell = NULL;
-		int sourceShardIndex = ShardIndex(sourceShardInterval);
 
 		int32 shardMinValue = DatumGetInt32(sourceShardInterval->minValue);
 		int32 shardMaxValue = DatumGetInt32(sourceShardInterval->maxValue);
@@ -346,7 +321,7 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 			const RelayFileState shardState = FILE_FINALIZED;
 			const uint64 shardSize = 0;
 			uint64 shardPlacementId = 0;
-			MultiConnection *connection = NULL;
+			ShardPlacement *shardPlacement = NULL;
 
 			/*
 			 * Optimistically add shard placement row the pg_dist_shard_placement, in case
@@ -355,28 +330,15 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 			shardPlacementId = InsertShardPlacementRow(newShardId, INVALID_PLACEMENT_ID,
 													   shardState, shardSize,
 													   sourceNodeName, sourceNodePort);
-			connection = FormConnectionToCreateShard(newShardId, targetTableRelationOwner,
-													 useExclusiveConnections,
-													 createInSeparateTransaction,
-													 shardPlacementId);
-			WorkerCreateShard(targetRelationId, sourceShardIndex, newShardId,
-							  targetTableDDLEvents, targetTableForeignConstraintCommands,
-							  connection);
 
-			connectionList = lappend(connectionList, connection);
+			shardPlacement = LoadShardPlacement(newShardId, shardPlacementId);
+			insertedShardPlacements = lappend(insertedShardPlacements, shardPlacement);
 		}
 	}
 
-	/*
-	 * According to connection API, we must unclaim connections to make them usable
-	 * again. Since the same connection must be used to create a shard and copying
-	 * data to it, we have to unclaim all connections.
-	 */
-	foreach(connectionCell, connectionList)
-	{
-		MultiConnection *connection = (MultiConnection *) lfirst(connectionCell);
-		UnclaimConnection(connection);
-	}
+	CreateShardsOnWorkers(targetRelationId, insertedShardPlacements,
+						  useExclusiveConnections, createInSeparateTransaction,
+						  colocatedShard);
 }
 
 
@@ -388,10 +350,8 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 void
 CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 {
-	char *relationOwner = NULL;
 	char shardStorageType = 0;
 	List *workerNodeList = NIL;
-	List *ddlCommandList = NIL;
 	int32 workerNodeCount = 0;
 	List *existingShardList = NIL;
 	uint64 shardId = INVALID_SHARD_ID;
@@ -399,10 +359,9 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 	int replicationFactor = 0;
 	text *shardMinValue = NULL;
 	text *shardMaxValue = NULL;
-	bool includeSequenceDefaults = false;
-	List *connectionList = NIL;
-	ListCell *connectionCell = NULL;
 	bool createInSeperateTransaction = false;
+	bool colocatedShard = false;
+	List *insertedShardPlacements = NIL;
 
 	/*
 	 * In contrast to append/range partitioned tables it makes more sense to
@@ -414,8 +373,6 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 
 	/* we plan to add shards: get an exclusive metadata lock */
 	LockRelationDistributionMetadata(distributedTableId, ExclusiveLock);
-
-	relationOwner = TableOwner(distributedTableId);
 
 	/* set shard storage type according to relation type */
 	shardStorageType = ShardStorageType(distributedTableId);
@@ -437,9 +394,6 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 	/* get the next shard id */
 	shardId = GetNextShardId();
 
-	/* retrieve the DDL commands for the table */
-	ddlCommandList = GetTableDDLEvents(distributedTableId, includeSequenceDefaults);
-
 	/* set the replication factor equal to the number of worker nodes */
 	workerNodeCount = list_length(workerNodeList);
 	replicationFactor = workerNodeCount;
@@ -455,17 +409,12 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 	InsertShardRow(distributedTableId, shardId, shardStorageType, shardMinValue,
 				   shardMaxValue);
 
-	connectionList = CreateShardPlacements(distributedTableId, shardId, ddlCommandList,
-										   relationOwner, workerNodeList,
-										   workerStartIndex,
-										   replicationFactor, localEmptyTable,
-										   createInSeperateTransaction);
+	insertedShardPlacements = InsertShardPlacementRows(distributedTableId, shardId,
+													   workerNodeList, workerStartIndex,
+													   replicationFactor);
 
-	foreach(connectionCell, connectionList)
-	{
-		MultiConnection *connection = (MultiConnection *) lfirst(connectionCell);
-		UnclaimConnection(connection);
-	}
+	CreateShardsOnWorkers(distributedTableId, insertedShardPlacements, localEmptyTable,
+						  createInSeperateTransaction, colocatedShard);
 }
 
 

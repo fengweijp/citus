@@ -107,11 +107,13 @@ extern List * GetTableIndexAndConstraintCommands(Oid relationId);
 extern List * GetTableForeignConstraintCommands(Oid relationId);
 extern char ShardStorageType(Oid relationId);
 extern void CheckDistributedTable(Oid relationId);
-extern List * CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,
-									char *newPlacementOwner, List *workerNodeList,
-									int workerStartIndex, int replicationFactor,
-									bool localEmptyTable, bool
-									createInSeparateTransaction);
+extern void CreateShardsOnWorkers(Oid distributedRelationId, List *shardPlacements,
+								  bool useExclusiveConnection,
+								  bool createInSeparateTransaction,
+								  bool colocatedShard);
+extern List * InsertShardPlacementRows(Oid relationId, int64 shardId,
+									   List *workerNodeList, int workerStartIndex,
+									   int replicationFactor);
 extern uint64 UpdateShardStatistics(int64 shardId);
 extern void CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 											 int32 replicationFactor,
@@ -122,10 +124,6 @@ extern void CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTab
 extern void WorkerCreateShard(Oid relationId, int shardIndex, uint64 shardId,
 							  List *ddlCommandList, List *foreignConstraintCommandList,
 							  MultiConnection *connection);
-extern MultiConnection * FormConnectionToCreateShard(uint64 shardId, char *newShardOwner,
-													 bool localEmptyTable,
-													 bool createInSeparateTransaction,
-													 uint64 placementId);
 extern Oid ForeignConstraintGetReferencedTableId(char *queryString);
 extern void CheckHashPartitionedTable(Oid distributedTableId);
 extern void CheckTableSchemaNameForDrop(Oid relationId, char **schemaName,
