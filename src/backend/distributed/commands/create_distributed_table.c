@@ -130,6 +130,8 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 							  distributionMethod, REPLICATION_MODEL_COORDINATOR,
 							  INVALID_COLOCATION_ID);
 
+	XactModificationLevel = XACT_MODIFICATION_DATA;
+
 	PG_RETURN_VOID();
 }
 
@@ -210,6 +212,8 @@ create_distributed_table(PG_FUNCTION_ARGS)
 		CreateTableMetadataOnWorkers(relationId);
 	}
 
+	XactModificationLevel = XACT_MODIFICATION_DATA;
+
 	PG_RETURN_VOID();
 }
 
@@ -242,7 +246,6 @@ CreateReferenceTable(Oid relationId)
 	List *workerNodeList = NIL;
 	int replicationFactor = 0;
 	char *distributionColumnName = NULL;
-	bool localTableEmpty = true;
 	char relationKind = 0;
 
 	EnsureCoordinator();
@@ -266,7 +269,6 @@ CreateReferenceTable(Oid relationId)
 	if (relationKind == RELKIND_RELATION)
 	{
 		EnsureTableNotDistributed(relationId);
-		localTableEmpty = LocalTableEmpty(relationId);
 	}
 	else
 	{
@@ -280,7 +282,7 @@ CreateReferenceTable(Oid relationId)
 							  DISTRIBUTE_BY_NONE, REPLICATION_MODEL_2PC, colocationId);
 
 	/* now, create the single shard replicated to all nodes */
-	CreateReferenceTableShard(relationId, localTableEmpty);
+	CreateReferenceTableShard(relationId);
 
 	CreateTableMetadataOnWorkers(relationId);
 
@@ -595,7 +597,7 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	uint32 colocationId = INVALID_COLOCATION_ID;
 	Oid sourceRelationId = InvalidOid;
 	Oid distributionColumnType = InvalidOid;
-	bool localTableEmpty = false;
+	bool useExclusiveConnection = false;
 	char relationKind = 0;
 
 	/* get an access lock on the relation to prevent DROP TABLE and ALTER TABLE */
@@ -644,7 +646,7 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	if (relationKind == RELKIND_RELATION)
 	{
 		EnsureTableNotDistributed(relationId);
-		localTableEmpty = LocalTableEmpty(relationId);
+		useExclusiveConnection = IsTransactionBlock() || !LocalTableEmpty(relationId);
 	}
 	else
 	{
@@ -670,12 +672,12 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 		CheckDistributionColumnType(sourceRelationId, relationId);
 
 
-		CreateColocatedShards(relationId, sourceRelationId, localTableEmpty);
+		CreateColocatedShards(relationId, sourceRelationId, useExclusiveConnection);
 	}
 	else
 	{
 		CreateShardsWithRoundRobinPolicy(relationId, shardCount, replicationFactor,
-										 localTableEmpty);
+										 useExclusiveConnection);
 	}
 
 	/* copy over data for regular relations */
@@ -705,22 +707,23 @@ EnsureSchemaExistsOnAllNodes(Oid relationId)
 	const char *createSchemaDDL = CreateSchemaDDLCommand(schemaId);
 	uint64 connectionFlag = FORCE_NEW_CONNECTION;
 
-	if (createSchemaDDL != NULL)
+	if (createSchemaDDL == NULL)
 	{
-		appendStringInfo(applySchemaCreationDDL, "%s", createSchemaDDL);
+		return;
+	}
 
-		foreach(workerNodeCell, workerNodeList)
-		{
-			WorkerNode *workerNode = (WorkerNode *) lfirst(workerNodeCell);
-			char *nodeName = workerNode->workerName;
-			uint32 nodePort = workerNode->workerPort;
-			MultiConnection *connection = GetNodeUserDatabaseConnection(connectionFlag,
-																		nodeName,
-																		nodePort,
-																		NULL, NULL);
+	appendStringInfo(applySchemaCreationDDL, "%s", createSchemaDDL);
 
-			ExecuteCriticalRemoteCommand(connection, applySchemaCreationDDL->data);
-		}
+	foreach(workerNodeCell, workerNodeList)
+	{
+		WorkerNode *workerNode = (WorkerNode *) lfirst(workerNodeCell);
+		char *nodeName = workerNode->workerName;
+		uint32 nodePort = workerNode->workerPort;
+		MultiConnection *connection =
+			GetNodeUserDatabaseConnection(connectionFlag, nodeName, nodePort, NULL,
+										  NULL);
+
+		ExecuteCriticalRemoteCommand(connection, applySchemaCreationDDL->data);
 	}
 }
 

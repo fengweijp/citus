@@ -431,6 +431,9 @@ WHERE col1 = 132;
 (1 row)
 
 DROP TABLE data_load_test1, data_load_test2;
+ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
+CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
+PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
 END;
 -- There should be no table on the worker node
 \c - - - :worker_1_port
@@ -468,6 +471,9 @@ NOTICE:  Copying data from local table...
 (1 row)
 
 DROP TABLE data_load_test;
+ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
+CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
+PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
 END;
 -- but dropping after a write on the distributed table is currently disallowed
 BEGIN;

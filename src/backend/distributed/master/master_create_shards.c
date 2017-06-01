@@ -70,13 +70,13 @@ master_create_worker_shards(PG_FUNCTION_ARGS)
 	Oid distributedTableId = ResolveRelationId(tableNameText);
 
 	/* do not add any data */
-	bool localEmptyTable = true;
+	bool useExclusiveConnections = false;
 
 	EnsureCoordinator();
 	CheckCitusVersion(ERROR);
 
 	CreateShardsWithRoundRobinPolicy(distributedTableId, shardCount, replicationFactor,
-									 localEmptyTable);
+									 useExclusiveConnections);
 
 	PG_RETURN_VOID();
 }
@@ -103,7 +103,6 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 	List *existingShardList = NIL;
 	int64 shardIndex = 0;
 	DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(distributedTableId);
-	bool createInSeparateTransaction = false;
 	bool colocatedShard = false;
 	List *insertedShardPlacements = NIL;
 
@@ -233,8 +232,7 @@ CreateShardsWithRoundRobinPolicy(Oid distributedTableId, int32 shardCount,
 	}
 
 	CreateShardsOnWorkers(distributedTableId, insertedShardPlacements,
-						  useExclusiveConnections, createInSeparateTransaction,
-						  colocatedShard);
+						  useExclusiveConnections, colocatedShard);
 
 	if (QueryCancelPending)
 	{
@@ -258,7 +256,6 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 	List *existingShardList = NIL;
 	List *sourceShardIntervalList = NIL;
 	ListCell *sourceShardCell = NULL;
-	bool createInSeparateTransaction = false;
 	bool colocatedShard = true;
 	List *insertedShardPlacements = NIL;
 
@@ -337,8 +334,7 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
 	}
 
 	CreateShardsOnWorkers(targetRelationId, insertedShardPlacements,
-						  useExclusiveConnections, createInSeparateTransaction,
-						  colocatedShard);
+						  useExclusiveConnections, colocatedShard);
 }
 
 
@@ -348,7 +344,7 @@ CreateColocatedShards(Oid targetRelationId, Oid sourceRelationId, bool
  * Also, the shard is replicated to the all active nodes in the cluster.
  */
 void
-CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
+CreateReferenceTableShard(Oid distributedTableId)
 {
 	char shardStorageType = 0;
 	List *workerNodeList = NIL;
@@ -359,7 +355,7 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 	int replicationFactor = 0;
 	text *shardMinValue = NULL;
 	text *shardMaxValue = NULL;
-	bool createInSeperateTransaction = false;
+	bool useExclusiveConnection = false;
 	bool colocatedShard = false;
 	List *insertedShardPlacements = NIL;
 
@@ -413,8 +409,8 @@ CreateReferenceTableShard(Oid distributedTableId, bool localEmptyTable)
 													   workerNodeList, workerStartIndex,
 													   replicationFactor);
 
-	CreateShardsOnWorkers(distributedTableId, insertedShardPlacements, localEmptyTable,
-						  createInSeperateTransaction, colocatedShard);
+	CreateShardsOnWorkers(distributedTableId, insertedShardPlacements,
+						  useExclusiveConnection, colocatedShard);
 }
 
 
