@@ -62,9 +62,8 @@ PG_FUNCTION_INFO_V1(master_update_shard_statistics);
 /*
  * master_create_empty_shard creates an empty shard for the given distributed
  * table. The function first updates metadata on the coordinator node to make
- * this shard (and its placements) visible. Then it creates empty shard on
- * worker node according to the shard placement row added to the metadata
- * table.
+ * this shard visible. Then it creates empty shard on worker node and added
+ * shard placement row to metadata table.
  */
 Datum
 master_create_empty_shard(PG_FUNCTION_ARGS)
@@ -389,11 +388,9 @@ CreateAppendDistributedShardPlacements(Oid relationId, int64 shardId,
 		int shardIndex = -1; /* not used in this code path */
 		const RelayFileState shardState = FILE_FINALIZED;
 		const uint64 shardSize = 0;
-		MultiConnection *connection = GetNodeUserDatabaseConnection(connectionFlag,
-																	nodeName,
-																	nodePort,
-																	relationOwner,
-																	NULL);
+		MultiConnection *connection =
+			GetNodeUserDatabaseConnection(connectionFlag, nodeName, nodePort,
+										  relationOwner, NULL);
 
 		if (PQstatus(connection->pgConn) != CONNECTION_OK)
 		{

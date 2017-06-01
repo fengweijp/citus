@@ -563,34 +563,53 @@ ROLLBACK;
 \c - - - :worker_1_port
 \d rollback_table*
 \c - - - :master_port
--- Again there should be no table on the worker node
+-- Insert 3 rows to make sure that copy after shard creation touches the same 
+-- worker node twice. 
 BEGIN;
-SELECT create_distributed_table('rollback_table','id');
-ERROR:  relation "rollback_table" does not exist
-LINE 1: SELECT create_distributed_table('rollback_table','id');
-                                        ^
+CREATE TABLE rollback_table(id int, name varchar(20));
 INSERT INTO rollback_table VALUES(1, 'Name_1');
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
+INSERT INTO rollback_table VALUES(2, 'Name_2');
+INSERT INTO rollback_table VALUES(3, 'Name_3');
+SELECT create_distributed_table('rollback_table','id');
+NOTICE:  Copying data from local table...
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
 ROLLBACK;
 -- Table should not exist on the worker node
 \c - - - :worker_1_port
 \d rollback_table*
 \c - - - :master_port
 BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
 SELECT create_distributed_table('rollback_table','id');
-ERROR:  relation "rollback_table" does not exist
-LINE 1: SELECT create_distributed_table('rollback_table','id');
-                                        ^
-\copy tt1 from stdin delimiter ','
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
-1
-2
-\.
-invalid command \.
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+\copy rollback_table from stdin delimiter ','
+COMMIT;
+-- Check the table is created 
+SELECT count(*) FROM rollback_table;
+ count 
+-------
+     3
+(1 row)
+
+DROP TABLE rollback_table;
+BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
+SELECT create_distributed_table('rollback_table','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+\copy rollback_table from stdin delimiter ','
 ROLLBACK;
-ERROR:  syntax error at or near "1"
-LINE 1: 1
-        ^
 -- Table should not exist on the worker node
 \c - - - :worker_1_port
 \d rollback_table*
@@ -612,34 +631,113 @@ SELECT create_distributed_table('tt2','id');
 
 INSERT INTO tt1 VALUES(1);
 INSERT INTO tt2 SELECT * FROM tt1 WHERE id = 1;
-ROLLBACK;
--- Table should not exist on the worker node
+COMMIT;
+-- Table should exist on the worker node
 \c - - - :worker_1_port
-\d tt1*
-\d tt2*
+\d tt1_360398
+  Table "public.tt1_360398"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ id     | integer | 
+
+\d tt2_360430
+  Table "public.tt2_360430"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ id     | integer | 
+
 \c - - - :master_port
+DROP TABLE tt1;
+DROP TABLE tt2;
 -- It is known that creating a table with master_create_empty_shard is not
 -- transactional operation.
 BEGIN;
-CREATE TABLE tt1(id int);
-SELECT create_distributed_table('tt1','id','append');
+CREATE TABLE append_tt1(id int);
+SELECT create_distributed_table('append_tt1','id','append');
  create_distributed_table 
 --------------------------
  
 (1 row)
 
-SELECT master_create_empty_shard('tt1');
+SELECT master_create_empty_shard('append_tt1');
  master_create_empty_shard 
 ---------------------------
-                    360366
+                    360462
 (1 row)
 
 ROLLBACK;
 -- Table exists on the worker node.
 \c - - - :worker_1_port
-\d tt1*
-  Table "public.tt1_360366"
+\d append_tt1_360462
+Table "public.append_tt1_360462"
  Column |  Type   | Modifiers 
 --------+---------+-----------
  id     | integer | 
 
+\c - - - :master_port
+-- It is known that queries executing with real-time executor is not allowed
+-- in the same transaction with create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+SELECT * FROM tt1;
+ERROR:  cannot open new connections after the first modification command within a transaction
+ROLLBACK;
+-- There should be no table on the worker node
+\c - - - :worker_1_port
+\d tt1*
+\c - - - :master_port
+-- Queries executing with router executor is allowed in the same transaction
+-- with create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+INSERT INTO tt1 VALUES(1);
+SELECT create_distributed_table('tt1','id');
+NOTICE:  Copying data from local table...
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+INSERT INTO tt1 VALUES(2);
+SELECT * FROM tt1 WHERE id = 1;
+ id 
+----
+  1
+(1 row)
+
+COMMIT;
+-- Placements should be created on the worker
+\c - - - :worker_1_port
+\d tt1_360495
+  Table "public.tt1_360495"
+ Column |  Type   | Modifiers 
+--------+---------+-----------
+ id     | integer | 
+
+\c - - - :master_port
+DROP TABLE tt1;
+-- It is known that drop table is not allowed in the same transaction with
+-- create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
+
+DROP TABLE tt1;
+ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
+CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
+PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
+ROLLBACK;
+-- There should be no table on the worker node
+\c - - - :worker_1_port
+\d tt1*
+\c - - - :master_port

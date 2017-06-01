@@ -305,10 +305,14 @@ ROLLBACK;
 \d rollback_table*
 \c - - - :master_port
 
--- Again there should be no table on the worker node
+-- Insert 3 rows to make sure that copy after shard creation touches the same 
+-- worker node twice. 
 BEGIN;
-SELECT create_distributed_table('rollback_table','id');
+CREATE TABLE rollback_table(id int, name varchar(20));
 INSERT INTO rollback_table VALUES(1, 'Name_1');
+INSERT INTO rollback_table VALUES(2, 'Name_2');
+INSERT INTO rollback_table VALUES(3, 'Name_3');
+SELECT create_distributed_table('rollback_table','id');
 ROLLBACK;
 
 -- Table should not exist on the worker node
@@ -317,10 +321,26 @@ ROLLBACK;
 \c - - - :master_port
 
 BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
 SELECT create_distributed_table('rollback_table','id');
-\copy tt1 from stdin delimiter ','
-1
-2
+\copy rollback_table from stdin delimiter ','
+1, 'name_1'
+2, 'name_2'
+3, 'name_3'
+\.
+COMMIT;
+
+-- Check the table is created 
+SELECT count(*) FROM rollback_table;
+DROP TABLE rollback_table;
+
+BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
+SELECT create_distributed_table('rollback_table','id');
+\copy rollback_table from stdin delimiter ','
+1, 'name_1'
+2, 'name_2'
+3, 'name_3'
 \.
 ROLLBACK;
 
@@ -336,23 +356,70 @@ CREATE TABLE tt2(id int);
 SELECT create_distributed_table('tt2','id');
 INSERT INTO tt1 VALUES(1);
 INSERT INTO tt2 SELECT * FROM tt1 WHERE id = 1;
-ROLLBACK;
+COMMIT;
 
 
--- Table should not exist on the worker node
+-- Table should exist on the worker node
 \c - - - :worker_1_port
-\d tt1*
-\d tt2*
+\d tt1_360398
+\d tt2_360430
 \c - - - :master_port
+
+DROP TABLE tt1;
+DROP TABLE tt2;
 
 -- It is known that creating a table with master_create_empty_shard is not
 -- transactional operation.
 BEGIN;
-CREATE TABLE tt1(id int);
-SELECT create_distributed_table('tt1','id','append');
-SELECT master_create_empty_shard('tt1');
+CREATE TABLE append_tt1(id int);
+SELECT create_distributed_table('append_tt1','id','append');
+SELECT master_create_empty_shard('append_tt1');
 ROLLBACK;
 
 -- Table exists on the worker node.
 \c - - - :worker_1_port
+\d append_tt1_360462
+\c - - - :master_port
+
+-- It is known that queries executing with real-time executor is not allowed
+-- in the same transaction with create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+SELECT * FROM tt1;
+ROLLBACK;
+
+-- There should be no table on the worker node
+\c - - - :worker_1_port
 \d tt1*
+\c - - - :master_port
+
+-- Queries executing with router executor is allowed in the same transaction
+-- with create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+INSERT INTO tt1 VALUES(1);
+SELECT create_distributed_table('tt1','id');
+INSERT INTO tt1 VALUES(2);
+SELECT * FROM tt1 WHERE id = 1;
+COMMIT;
+
+-- Placements should be created on the worker
+\c - - - :worker_1_port
+\d tt1_360495
+\c - - - :master_port
+
+DROP TABLE tt1;
+
+-- It is known that drop table is not allowed in the same transaction with
+-- create_distributed_table
+BEGIN;
+CREATE TABLE tt1(id int);
+SELECT create_distributed_table('tt1','id');
+DROP TABLE tt1;
+ROLLBACK;
+
+-- There should be no table on the worker node
+\c - - - :worker_1_port
+\d tt1*
+\c - - - :master_port

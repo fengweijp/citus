@@ -88,6 +88,7 @@ static List * TupleDescColumnNameList(TupleDesc tupleDescriptor);
 static void EnsureSchemaExistsOnAllNodes(Oid relationId);
 static void EnsureLocalTableEmpty(Oid relationId);
 static void EnsureTableNotDistributed(Oid relationId);
+static void EnsureIsTableId(Oid relationId);
 
 /* exports for SQL callable functions */
 PG_FUNCTION_INFO_V1(master_create_distributed_table);
@@ -750,13 +751,40 @@ EnsureLocalTableEmpty(Oid relationId)
 
 
 /*
- * EnsureTableNotDistributed errors out if the table is distributed.
+ * EnsureIsTableId errors out if the id is not belong to a regular of foreign table.
+ */
+static void
+EnsureIsTableId(Oid relationId)
+{
+	Relation relation = relation_open(relationId, AccessShareLock);
+	char *relationName = get_rel_name(relationId);
+	char relationKind = 0;
+
+	/* verify target relation is either regular or foreign table */
+	relationKind = relation->rd_rel->relkind;
+	if (relationKind != RELKIND_RELATION && relationKind != RELKIND_FOREIGN_TABLE)
+	{
+		ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						errmsg("%s is not a regular or foreign table",
+							   relationName)));
+	}
+
+	relation_close(relation, NoLock);
+}
+
+
+/*
+ * EnsureTableNotDistributed errors out if the relationId doesn't belong to regular or foreign table
+ * or the table is distributed.
  */
 static void
 EnsureTableNotDistributed(Oid relationId)
 {
 	char *relationName = get_rel_name(relationId);
-	bool isDistributedTable = IsDistributedTable(relationId);
+	bool isDistributedTable = false;
+
+	EnsureIsTableId(relationId);
+	isDistributedTable = IsDistributedTable(relationId);
 
 	if (isDistributedTable)
 	{
