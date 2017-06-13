@@ -359,12 +359,15 @@ INSERT INTO data_load_test VALUES (132, 'hello');
 INSERT INTO data_load_test VALUES (243, 'world');
 -- table must be empty when using append- or range-partitioning
 SELECT create_distributed_table('data_load_test', 'col1', 'append');
-ERROR:  table "data_load_test" is not empty
+ERROR:  cannot distribute relation "data_load_test"
+HINT:  Empty your table before distributing it.
 SELECT create_distributed_table('data_load_test', 'col1', 'range');
-ERROR:  table "data_load_test" is not empty
+ERROR:  cannot distribute relation "data_load_test"
+HINT:  Empty your table before distributing it.
 -- table must be empty when using master_create_distributed_table (no shards created)
 SELECT master_create_distributed_table('data_load_test', 'col1', 'hash');
-ERROR:  table "data_load_test" is not empty
+ERROR:  cannot distribute relation "data_load_test"
+HINT:  Empty your table before distributing it.
 -- create_distributed_table creates shards and copies data into the distributed table
 SELECT create_distributed_table('data_load_test', 'col1');
 NOTICE:  Copying data from local table...
@@ -431,9 +434,6 @@ WHERE col1 = 132;
 (1 row)
 
 DROP TABLE data_load_test1, data_load_test2;
-ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
-CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
-PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
 END;
 -- There should be no table on the worker node
 \c - - - :worker_1_port
@@ -471,9 +471,6 @@ NOTICE:  Copying data from local table...
 (1 row)
 
 DROP TABLE data_load_test;
-ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
-CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
-PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
 END;
 -- but dropping after a write on the distributed table is currently disallowed
 BEGIN;
@@ -531,12 +528,6 @@ CREATE UNLOGGED TABLE unlogged_table
 	value text
 );
 SELECT create_distributed_table('unlogged_table', 'key');
-
--- Test rollback of create table
-BEGIN;
-CREATE TABLE rollback_table(id int, name varchar(20));
-SELECT create_distributed_table('rollback_table','id');
->>>>>>> Make create_distributed_table transactional
  create_distributed_table 
 --------------------------
  
@@ -557,6 +548,16 @@ SELECT relpersistence FROM pg_class WHERE relname LIKE 'unlogged_table_%';
  u
  u
 (4 rows)
+
+\c - - - :master_port
+-- Test rollback of create table
+BEGIN;
+CREATE TABLE rollback_table(id int, name varchar(20));
+SELECT create_distributed_table('rollback_table','id');
+ create_distributed_table 
+--------------------------
+ 
+(1 row)
 
 ROLLBACK;
 -- Table should not exist on the worker node
@@ -634,14 +635,14 @@ INSERT INTO tt2 SELECT * FROM tt1 WHERE id = 1;
 COMMIT;
 -- Table should exist on the worker node
 \c - - - :worker_1_port
-\d tt1_360398
-  Table "public.tt1_360398"
+\d tt1_360430
+  Table "public.tt1_360430"
  Column |  Type   | Modifiers 
 --------+---------+-----------
  id     | integer | 
 
-\d tt2_360430
-  Table "public.tt2_360430"
+\d tt2_360462
+  Table "public.tt2_360462"
  Column |  Type   | Modifiers 
 --------+---------+-----------
  id     | integer | 
@@ -662,32 +663,19 @@ SELECT create_distributed_table('append_tt1','id','append');
 SELECT master_create_empty_shard('append_tt1');
  master_create_empty_shard 
 ---------------------------
-                    360462
+                    360494
 (1 row)
 
 ROLLBACK;
 -- Table exists on the worker node.
 \c - - - :worker_1_port
-\d append_tt1_360462
-Table "public.append_tt1_360462"
+\d append_tt1_360494
+Table "public.append_tt1_360494"
  Column |  Type   | Modifiers 
 --------+---------+-----------
  id     | integer | 
 
 \c - - - :master_port
--- It is known that queries executing with real-time executor is not allowed
--- in the same transaction with create_distributed_table
-BEGIN;
-CREATE TABLE tt1(id int);
-SELECT create_distributed_table('tt1','id');
- create_distributed_table 
---------------------------
- 
-(1 row)
-
-SELECT * FROM tt1;
-ERROR:  cannot open new connections after the first modification command within a transaction
-ROLLBACK;
 -- There should be no table on the worker node
 \c - - - :worker_1_port
 \d tt1*
@@ -733,9 +721,6 @@ SELECT create_distributed_table('tt1','id');
 (1 row)
 
 DROP TABLE tt1;
-ERROR:  shard drop operations must not appear in transaction blocks containing other distributed modifications
-CONTEXT:  SQL statement "SELECT master_drop_all_shards(v_obj.objid, v_obj.schema_name, v_obj.object_name)"
-PL/pgSQL function citus_drop_trigger() line 21 at PERFORM
 ROLLBACK;
 -- There should be no table on the worker node
 \c - - - :worker_1_port

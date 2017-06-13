@@ -484,6 +484,8 @@ CreateShardsOnWorkers(Oid distributedRelationId, List *shardPlacements,
 	ListCell *connectionCell = NULL;
 	ListCell *shardPlacementCell = NULL;
 
+	BeginOrContinueCoordinatedTransaction();
+
 	foreach(shardPlacementCell, shardPlacements)
 	{
 		ShardPlacement *shardPlacement = (ShardPlacement *) lfirst(shardPlacementCell);
@@ -497,7 +499,6 @@ CreateShardsOnWorkers(Oid distributedRelationId, List *shardPlacements,
 			shardIndex = ShardIndex(shardInterval);
 		}
 
-		BeginOrContinueCoordinatedTransaction();
 		connection = GetPlacementConnection(FOR_DDL, shardPlacement,
 											placementOwner);
 		if (useExclusiveConnection)

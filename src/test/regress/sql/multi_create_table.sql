@@ -274,7 +274,6 @@ SELECT * FROM data_load_test;
 DROP TABLE data_load_test;
 
 SET citus.shard_replication_factor TO default;
-
 SET citus.shard_count to 4;
 
 CREATE TABLE lineitem_hash_part (like lineitem);
@@ -293,6 +292,7 @@ SELECT * FROM master_get_table_ddl_events('unlogged_table');
 
 \c - - - :worker_1_port
 SELECT relpersistence FROM pg_class WHERE relname LIKE 'unlogged_table_%';
+\c - - - :master_port
 
 -- Test rollback of create table
 BEGIN;
@@ -361,8 +361,8 @@ COMMIT;
 
 -- Table should exist on the worker node
 \c - - - :worker_1_port
-\d tt1_360398
-\d tt2_360430
+\d tt1_360430
+\d tt2_360462
 \c - - - :master_port
 
 DROP TABLE tt1;
@@ -378,16 +378,8 @@ ROLLBACK;
 
 -- Table exists on the worker node.
 \c - - - :worker_1_port
-\d append_tt1_360462
+\d append_tt1_360494
 \c - - - :master_port
-
--- It is known that queries executing with real-time executor is not allowed
--- in the same transaction with create_distributed_table
-BEGIN;
-CREATE TABLE tt1(id int);
-SELECT create_distributed_table('tt1','id');
-SELECT * FROM tt1;
-ROLLBACK;
 
 -- There should be no table on the worker node
 \c - - - :worker_1_port

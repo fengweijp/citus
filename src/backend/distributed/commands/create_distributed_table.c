@@ -113,6 +113,7 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 	char *distributionColumnName = text_to_cstring(distributionColumnText);
 	char distributionMethod = LookupDistributionMethod(distributionMethodOid);
 
+	EnsureTableNotDistributed(distributedRelationId);
 	EnsureLocalTableEmpty(distributedRelationId);
 	EnsureCoordinator();
 	CheckCitusVersion(ERROR);
@@ -130,8 +131,6 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 	ConvertToDistributedTable(distributedRelationId, distributionColumnName,
 							  distributionMethod, REPLICATION_MODEL_COORDINATOR,
 							  INVALID_COLOCATION_ID);
-
-	XactModificationLevel = XACT_MODIFICATION_DATA;
 
 	PG_RETURN_VOID();
 }
@@ -188,6 +187,7 @@ create_distributed_table(PG_FUNCTION_ARGS)
 	/* if distribution method is not hash, just create partition metadata */
 	if (distributionMethod != DISTRIBUTE_BY_HASH)
 	{
+		EnsureTableNotDistributed(relationId);
 		EnsureLocalTableEmpty(relationId);
 
 		if (ReplicationModel != REPLICATION_MODEL_COORDINATOR)
@@ -212,8 +212,6 @@ create_distributed_table(PG_FUNCTION_ARGS)
 	{
 		CreateTableMetadataOnWorkers(relationId);
 	}
-
-	XactModificationLevel = XACT_MODIFICATION_DATA;
 
 	PG_RETURN_VOID();
 }
@@ -273,6 +271,7 @@ CreateReferenceTable(Oid relationId)
 	}
 	else
 	{
+		EnsureTableNotDistributed(relationId);
 		EnsureLocalTableEmpty(relationId);
 	}
 
@@ -651,6 +650,7 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	}
 	else
 	{
+		EnsureTableNotDistributed(relationId);
 		EnsureLocalTableEmpty(relationId);
 	}
 
@@ -659,9 +659,10 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 							  ReplicationModel, colocationId);
 
 	/*
-	 * Ensure schema exists on each worker node. We can not this function
-	 * transactionally, since separate transactions don't know whether other
-	 * transactions already created the schema or not.
+	 * Ensure schema exists on each worker node. We can not run this function
+	 * transactionally, since we may create shards over separate sessions and
+	 * shard creation depends on the schema being present and visible from all
+	 * sessions.
 	 */
 	EnsureSchemaExistsOnAllNodes(relationId);
 
@@ -730,7 +731,7 @@ EnsureSchemaExistsOnAllNodes(Oid relationId)
 
 
 /*
- * EnsureLocalTableEmpty errors out if the table is either distributed or not empty.
+ * EnsureLocalTableEmpty errors out if the local table is not empty.
  */
 static void
 EnsureLocalTableEmpty(Oid relationId)
@@ -738,14 +739,13 @@ EnsureLocalTableEmpty(Oid relationId)
 	bool localTableEmpty = false;
 	char *relationName = get_rel_name(relationId);
 
-	EnsureTableNotDistributed(relationId);
 	localTableEmpty = LocalTableEmpty(relationId);
 
 	if (!localTableEmpty)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						errmsg("table \"%s\" is not empty",
-							   relationName)));
+						errmsg("cannot distribute relation \"%s\"", relationName),
+						errhint("Empty your table before distributing it.")));
 	}
 }
 

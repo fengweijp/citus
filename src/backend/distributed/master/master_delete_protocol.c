@@ -388,8 +388,8 @@ DropShards(Oid relationId, char *schemaName, char *relationName,
 								 quotedShardName);
 			}
 
-			connection = GetNodeUserDatabaseConnection(connectionFlags, workerName,
-													   workerPort, extensionOwner, NULL);
+			connection = GetPlacementConnection(connectionFlags, shardPlacement,
+												extensionOwner);
 
 			RemoteTransactionBeginIfNecessary(connection);
 
