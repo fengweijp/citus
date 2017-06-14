@@ -60,8 +60,8 @@ typedef struct
 	FmgrInfo *shardIntervalCompareFunction;
 	FmgrInfo *hashFunction; /* NULL if table is not distributed by hash */
 
-	/* pg_dist_shard_placement metadata */
-	ShardPlacement **arrayOfPlacementArrays;
+	/* pg_dist_placement metadata */
+	GroupShardPlacement **arrayOfPlacementArrays;
 	int *arrayOfPlacementArrayLengths;
 } DistTableCacheEntry;
 
@@ -69,7 +69,7 @@ typedef struct
 extern bool IsDistributedTable(Oid relationId);
 extern List * DistributedTableList(void);
 extern ShardInterval * LoadShardInterval(uint64 shardId);
-extern ShardPlacement * LoadShardPlacement(uint64 shardId, uint64 placementId);
+extern GroupShardPlacement * LoadGroupShardPlacement(uint64 shardId, uint64 placementId);
 extern DistTableCacheEntry * DistributedTableCacheEntry(Oid distributedRelationId);
 extern int GetLocalGroupId(void);
 extern List * DistTableOidList(void);
@@ -91,7 +91,7 @@ extern Oid DistColocationConfigurationIndexId(void);
 extern Oid DistColocationColocationidIndexId(void);
 extern Oid DistPartitionRelationId(void);
 extern Oid DistShardRelationId(void);
-extern Oid DistShardPlacementRelationId(void);
+extern Oid DistPlacementRelationId(void);
 extern Oid DistNodeRelationId(void);
 extern Oid DistLocalGroupIdRelationId(void);
 
@@ -100,11 +100,11 @@ extern Oid DistPartitionLogicalRelidIndexId(void);
 extern Oid DistPartitionColocationidIndexId(void);
 extern Oid DistShardLogicalRelidIndexId(void);
 extern Oid DistShardShardidIndexId(void);
-extern Oid DistShardPlacementShardidIndexId(void);
-extern Oid DistShardPlacementPlacementidIndexId(void);
+extern Oid DistPlacementShardidIndexId(void);
+extern Oid DistPlacementPlacementidIndexId(void);
 extern Oid DistTransactionRelationId(void);
 extern Oid DistTransactionGroupIndexId(void);
-extern Oid DistShardPlacementNodeidIndexId(void);
+extern Oid DistPlacementGroupidIndexId(void);
 
 /* function oids */
 extern Oid CitusExtraDataContainerFuncId(void);
