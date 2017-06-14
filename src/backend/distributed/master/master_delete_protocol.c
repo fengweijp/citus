@@ -421,7 +421,7 @@ DropShards(Oid relationId, char *schemaName, char *relationName,
 
 			ExecuteCriticalRemoteCommand(connection, workerDropQuery->data);
 
-			DeleteShardPlacementRow(shardId, workerName, workerPort);
+			DeleteShardPlacementRow(shardId, shardPlacement->groupId);
 		}
 
 		DeleteShardRow(shardId);

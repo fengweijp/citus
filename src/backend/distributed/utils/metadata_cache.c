@@ -34,7 +34,7 @@
 #include "distributed/pg_dist_node.h"
 #include "distributed/pg_dist_partition.h"
 #include "distributed/pg_dist_shard.h"
-#include "distributed/pg_dist_shard_placement.h"
+#include "distributed/pg_dist_placement.h"
 #include "distributed/shared_library_init.h"
 #include "distributed/shardinterval_utils.h"
 #include "distributed/worker_manager.h"
@@ -91,7 +91,7 @@ typedef struct MetadataCacheData
 {
 	bool extensionLoaded;
 	Oid distShardRelationId;
-	Oid distShardPlacementRelationId;
+	Oid distPlacementRelationId;
 	Oid distNodeRelationId;
 	Oid distLocalGroupRelationId;
 	Oid distColocationRelationId;
@@ -102,9 +102,9 @@ typedef struct MetadataCacheData
 	Oid distPartitionColocationidIndexId;
 	Oid distShardLogicalRelidIndexId;
 	Oid distShardShardidIndexId;
-	Oid distShardPlacementShardidIndexId;
-	Oid distShardPlacementPlacementidIndexId;
-	Oid distShardPlacementNodeidIndexId;
+	Oid distPlacementShardidIndexId;
+	Oid distPlacementPlacementidIndexId;
+	Oid distPlacementGroupidIndexId;
 	Oid distTransactionRelationId;
 	Oid distTransactionGroupIndexId;
 	Oid extraDataContainerFuncId;
@@ -114,7 +114,6 @@ typedef struct MetadataCacheData
 
 
 static MetadataCacheData MetadataCache;
-
 
 /* Citus extension version variables */
 bool EnableVersionChecks = true; /* version checks are enabled */
@@ -1449,14 +1448,14 @@ DistShardRelationId(void)
 }
 
 
-/* return oid of pg_dist_shard_placement relation */
+/* return oid of pg_dist_placement relation */
 Oid
-DistShardPlacementRelationId(void)
+DistPlacementRelationId(void)
 {
-	CachedRelationLookup("pg_dist_shard_placement",
-						 &MetadataCache.distShardPlacementRelationId);
+	CachedRelationLookup("pg_dist_placement",
+						 &MetadataCache.distPlacementRelationId);
 
-	return MetadataCache.distShardPlacementRelationId;
+	return MetadataCache.distPlacementRelationId;
 }
 
 
@@ -1570,25 +1569,25 @@ DistShardShardidIndexId(void)
 }
 
 
-/* return oid of pg_dist_shard_placement_shardid_index */
+/* return oid of pg_dist_placement_shardid_index */
 Oid
-DistShardPlacementShardidIndexId(void)
+DistPlacementShardidIndexId(void)
 {
-	CachedRelationLookup("pg_dist_shard_placement_shardid_index",
-						 &MetadataCache.distShardPlacementShardidIndexId);
+	CachedRelationLookup("pg_dist_placement_shardid_index",
+						 &MetadataCache.distPlacementShardidIndexId);
 
-	return MetadataCache.distShardPlacementShardidIndexId;
+	return MetadataCache.distPlacementShardidIndexId;
 }
 
 
-/* return oid of pg_dist_shard_placement_shardid_index */
+/* return oid of pg_dist_placement_placementid_index */
 Oid
-DistShardPlacementPlacementidIndexId(void)
+DistPlacementPlacementidIndexId(void)
 {
-	CachedRelationLookup("pg_dist_shard_placement_placementid_index",
-						 &MetadataCache.distShardPlacementPlacementidIndexId);
+	CachedRelationLookup("pg_dist_placement_placementid_index",
+						 &MetadataCache.distPlacementPlacementidIndexId);
 
-	return MetadataCache.distShardPlacementPlacementidIndexId;
+	return MetadataCache.distPlacementPlacementidIndexId;
 }
 
 
@@ -1614,14 +1613,14 @@ DistTransactionGroupIndexId(void)
 }
 
 
-/* return oid of pg_dist_shard_placement_nodeid_index */
+/* return oid of pg_dist_placement_groupid_index */
 Oid
-DistShardPlacementNodeidIndexId(void)
+DistPlacementGroupidIndexId(void)
 {
-	CachedRelationLookup("pg_dist_shard_placement_nodeid_index",
-						 &MetadataCache.distShardPlacementNodeidIndexId);
+	CachedRelationLookup("pg_dist_placement_groupid_index",
+						 &MetadataCache.distPlacementGroupidIndexId);
 
-	return MetadataCache.distShardPlacementNodeidIndexId;
+	return MetadataCache.distPlacementGroupidIndexId;
 }
 
 
@@ -1878,7 +1877,7 @@ master_dist_shard_cache_invalidate(PG_FUNCTION_ARGS)
 
 /*
  * master_dist_placmeent_cache_invalidate is a trigger function that performs
- * relcache invalidations when the contents of pg_dist_shard_placement are
+ * relcache invalidations when the contents of pg_dist_placement are
  * changed on the SQL level.
  *
  * NB: We decided there is little point in checking permissions here, there
@@ -1907,16 +1906,16 @@ master_dist_placement_cache_invalidate(PG_FUNCTION_ARGS)
 	/* collect shardid for OLD and NEW tuple */
 	if (oldTuple != NULL)
 	{
-		Form_pg_dist_shard_placement distPlacement =
-			(Form_pg_dist_shard_placement) GETSTRUCT(oldTuple);
+		Form_pg_dist_placement distPlacement =
+			(Form_pg_dist_placement) GETSTRUCT(oldTuple);
 
 		oldShardId = distPlacement->shardid;
 	}
 
 	if (newTuple != NULL)
 	{
-		Form_pg_dist_shard_placement distPlacement =
-			(Form_pg_dist_shard_placement) GETSTRUCT(newTuple);
+		Form_pg_dist_placement distPlacement =
+			(Form_pg_dist_placement) GETSTRUCT(newTuple);
 
 		newShardId = distPlacement->shardid;
 	}
