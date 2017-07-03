@@ -2191,6 +2191,7 @@ InitializeWorkerNodeCache(void)
 		strlcpy(workerNode->workerRack, currentNode->workerRack, WORKER_LENGTH);
 		workerNode->hasMetadata = currentNode->hasMetadata;
 		workerNode->isActive = currentNode->isActive;
+		workerNode->nodeRole = currentNode->nodeRole;
 
 		if (handleFound)
 		{
