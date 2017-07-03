@@ -63,6 +63,7 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
+#include "utils/arrayaccess.h"
 #include "utils/catcache.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -551,78 +552,45 @@ PrunableExpressionsWalker(Node *node, ClauseWalkerContext *context)
 		Expr *arrayArgument = (Expr *) lsecond(arrayOperatorExpression->args);
 
 		/*
-		 * Found partcol = ANY(const, value, s); or parcol IN (const,b,c);
+		 * Found partcol = ANY(const, value, s); or partcol IN (const,b,c);
 		 */
 		if (usingEqualityOperator && strippedLeftOpExpression != NULL &&
 			equal(strippedLeftOpExpression, context->partitionColumn) &&
 			IsA(arrayArgument, Const))
 		{
-			ArrayType *array;
-			int16 typlen;
-			bool typbyval;
-			char typalign;
-			Oid element_type;
-			char *s;
-			bits8 *bitmap;
-			int bitmask;
-			int i;
-			int nitems;
+			ArrayType *array = NULL;
+			int16 typlen = 0;
+			bool typbyval = false;
+			char typalign = '\0';
+			Oid element_type = 0;
+			ArrayIterator arrayIterator = NULL;
+			Datum arg = 0;
+			Datum arrayDatum = ((Const *) arrayArgument)->constvalue;
+			bool isNull = false;
 
-			/*
-			 * FIXME: use array_iter_setup() / array_iter_next(), instead of
-			 * open-coding array iteration.
-			 */
+			/* check for the NULL righthand expression*/
+			if (arrayDatum == 0)
+			{
+				return false;
+			}
+
 			array = DatumGetArrayTypeP(((Const *) arrayArgument)->constvalue);
 
+			/* get the necessary information from array type to iterate over it */
 			element_type = ARR_ELEMTYPE(array);
 			get_typlenbyvalalign(element_type,
 								 &typlen,
 								 &typbyval,
 								 &typalign);
 
-			s = (char *) ARR_DATA_PTR(array);
-			bitmap = ARR_NULLBITMAP(array);
-			bitmask = 1;
-			nitems = ArrayGetNItems(ARR_NDIM(array), ARR_DIMS(array));
-
-			/*
-			 * Treat ScalarArrayOp as a logn list of ORs and treat it the same
-			 * way as BOOL_OR above.
-			 */
-			for (i = 0; i < nitems; i++)
+			/* Iterate over the righthand array of expression */
+			arrayIterator = array_create_iterator(array, 0, NULL);
+			while (array_iterate(arrayIterator, &arg, &isNull))
 			{
-				OpExpr *op;
+				OpExpr *op = NULL;
 				PendingPruningInstance *instance =
 					palloc0(sizeof(PendingPruningInstance));
-				Datum arg;
-				bool argnull;
-				Const *c;
-
-				/* Get array element, checking for NULL */
-				if (bitmap && (*bitmap & bitmask) == 0)
-				{
-					arg = (Datum) 0;
-					argnull = true;
-				}
-				else
-				{
-					arg = fetch_att(s, typbyval, typlen);
-					argnull = false;
-
-					s = att_addlength_pointer(s, typlen, s);
-					s = (char *) att_align_nominal(s, typalign);
-				}
-
-				/* advance bitmap pointer if any */
-				if (bitmap)
-				{
-					bitmask <<= 1;
-					if (bitmask == 0x100)
-					{
-						bitmap++;
-						bitmask = 1;
-					}
-				}
+				Const *c = NULL;
 
 				/* build partcol = arrayelem operator */
 				op = makeNode(OpExpr);
@@ -637,7 +605,7 @@ PrunableExpressionsWalker(Node *node, ClauseWalkerContext *context)
 							  DEFAULT_COLLATION_OID,
 							  typlen,
 							  arg,
-							  argnull,
+							  isNull,
 							  typbyval);
 				op->args = list_make2(strippedLeftOpExpression, c);
 

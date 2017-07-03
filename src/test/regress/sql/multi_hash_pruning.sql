@@ -67,10 +67,46 @@ SELECT count(*) FROM orders_hash_partitioned
 SELECT count(*) FROM
        (SELECT o_orderkey FROM orders_hash_partitioned WHERE o_orderkey = 1) AS orderkeys;
 
--- Check that we don't support pruning for ANY (array expression) and give
--- a notice message when used with the partition column
-SELECT count(*) FROM orders_hash_partitioned
-	WHERE o_orderkey = ANY ('{1,2,3}');
+SET client_min_messages TO DEFAULT;
+
+-- Check that we support running for ANY/IN
+CREATE TABLE sample_subquery_table(id int);
+CREATE TABLE sample_main_table(id int);
+SELECT create_distributed_table('sample_subquery_table', 'id');
+SELECT create_distributed_table('sample_main_table', 'id');
+INSERT INTO sample_subquery_table VALUES(1);
+INSERT INTO sample_subquery_table VALUES(5);
+INSERT INTO sample_main_table VALUES(1);
+INSERT INTO sample_main_table VALUES(5);
+
+-- Check that we support runing for ANY/IN with literal.
+SELECT count(*) FROM sample_main_table
+	WHERE id = ANY ('{1,2,3}');
+
+SELECT count(*) FROM sample_main_table
+	WHERE id IN (1,2,3);
+
+-- Check whether we can deal with null arrays
+SELECT count(*) FROM sample_main_table
+	WHERE id IN (NULL);
+
+SELECT count(*) FROM sample_main_table
+	WHERE id = ANY (NULL);
+
+SELECT count(*) FROM sample_main_table
+	WHERE id IN (NULL) OR TRUE;
+
+SELECT count(*) FROM sample_main_table
+	WHERE id = ANY(NULL) OR TRUE;	
+
+-- Check whether we support IN/ANY in subquery
+SELECT count(*) FROM sample_main_table WHERE ID IN (SELECT id FROM sample_subquery_table);
+SELECT count(*) FROM sample_main_table WHERE ID IN (SELECT id FROM sample_subquery_table);
+
+DROP TABLE sample_subquery_table;
+DROP TABLE sample_main_table;
+
+SET client_min_messages TO DEBUG2;
 
 -- Check that we don't show the message if the operator is not
 -- equality operator
