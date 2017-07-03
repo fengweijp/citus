@@ -540,9 +540,10 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 				char *parentPartitionKeyStr =
 					get_relid_attribute_name(parentId,
 											 parentPartitionKey->varattno);
+				bool copyLocalData = true;
 
 				CreateHashDistributedTable(relationId, parentPartitionKeyStr,
-										   get_rel_name(parentId), 0, 0);
+										   get_rel_name(parentId), 0, 0, copyLocalData);
 			}
 		}
 	}
@@ -576,9 +577,11 @@ multi_ProcessUtility(PlannedStmt *pstmt,
 					char *parentPartitionKeyStr =
 						get_relid_attribute_name(parentId,
 												 parentPartitionKey->varattno);
+					bool copyLocalData = true;
+
 
 					CreateHashDistributedTable(relationId, parentPartitionKeyStr,
-											   get_rel_name(parentId), 0, 0);
+											   get_rel_name(parentId), 0, 0, copyLocalData);
 				}
 			}
 		}

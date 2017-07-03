@@ -9,9 +9,12 @@ CREATE TABLE partitioning_test_2010 PARTITION OF partitioning_test FOR VALUES FR
 -- load some data and distribute tables
 INSERT INTO partitioning_test VALUES (1, '2009-06-06');
 INSERT INTO partitioning_test VALUES (2, '2010-07-07');
-
-INSERT INTO partitioning_test_2009 VALUES (3, '2009-09-09');
-INSERT INTO partitioning_test_2010 VALUES (4, '2010-03-03');
+INSERT INTO partitioning_test VALUES (3, '2009-06-07');
+INSERT INTO partitioning_test VALUES (4, '2010-07-08');
+INSERT INTO partitioning_test_2009 VALUES (5, '2009-09-09');
+INSERT INTO partitioning_test_2010 VALUES (6, '2010-03-03');
+INSERT INTO partitioning_test_2009 VALUES (7, '2009-09-09');
+INSERT INTO partitioning_test_2010 VALUES (8, '2010-03-03');
 
 SET citus.shard_count TO 4;
 SET citus.shard_replication_factor TO 1;

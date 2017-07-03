@@ -565,6 +565,9 @@ StartColocatedPlacementConnection(uint32 flags, ShardPlacement *placement,
 	strcpy(key.nodeName, placement->nodeName);
 	key.nodePort = placement->nodePort;
 	key.colocationGroupId = placement->colocationGroupId;
+
+	elog(INFO, "placement->colocationGroupI: %d", placement->colocationGroupId);
+
 	key.representativeValue = placement->representativeValue;
 
 	entry = hash_search(ColocatedPlacementsHash, &key, HASH_ENTER, &found);

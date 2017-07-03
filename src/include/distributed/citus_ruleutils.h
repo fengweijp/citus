@@ -52,6 +52,7 @@ extern char * generate_qualified_relation_name(Oid relid);
 /* TODO: THIS SHOULD NOT BE HERE */
 extern void CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 									   char *colocateWithTableName,
-									   int shardCount, int replicationFactor);
+									   int shardCount, int replicationFactor,
+									   bool copyLocalData);
 
 #endif /* CITUS_RULEUTILS_H */
