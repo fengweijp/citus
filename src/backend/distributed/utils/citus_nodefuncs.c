@@ -360,7 +360,7 @@ EqualUnsupportedCitusNode(const struct ExtensibleNode *a,
 	{ \
 		#type, \
 		sizeof(type), \
-		CopyUnsupportedCitusNode, \
+		CopyNode##type, \
 		EqualUnsupportedCitusNode, \
 		Out##type, \
 		Read##type \

@@ -70,8 +70,6 @@ static PlannedStmt * CreateDistributedPlan(PlannedStmt *localPlan, Query *origin
 										   plannerRestrictionContext);
 static void AssignRTEIdentities(Query *queryTree);
 static void AssignRTEIdentity(RangeTblEntry *rangeTableEntry, int rteIdentifier);
-static Node * SerializeMultiPlan(struct MultiPlan *multiPlan);
-static MultiPlan * DeserializeMultiPlan(Node *node);
 static PlannedStmt * FinalizePlan(PlannedStmt *localPlan, MultiPlan *multiPlan);
 static PlannedStmt * FinalizeNonRouterPlan(PlannedStmt *localPlan, MultiPlan *multiPlan,
 										   CustomScan *customScan);
@@ -412,60 +410,15 @@ CreateDistributedPlan(PlannedStmt *localPlan, Query *originalQuery, Query *query
 MultiPlan *
 GetMultiPlan(CustomScan *customScan)
 {
+	Node *node = NULL;
 	MultiPlan *multiPlan = NULL;
 
 	Assert(list_length(customScan->custom_private) == 1);
 
-	multiPlan = DeserializeMultiPlan(linitial(customScan->custom_private));
+	node = (Node *) linitial(customScan->custom_private);
+	Assert(CitusIsA(node, MultiPlan));
 
-	return multiPlan;
-}
-
-
-/*
- * SerializeMultiPlan returns the string representing the distributed plan in a
- * Const node.
- *
- * Note that this should be improved for 9.6+, we we can copy trees efficiently.
- * I.e. we should introduce copy support for relevant node types, and just
- * return the MultiPlan as-is for 9.6.
- */
-static Node *
-SerializeMultiPlan(MultiPlan *multiPlan)
-{
-	char *serializedMultiPlan = NULL;
-	Const *multiPlanData = NULL;
-
-	serializedMultiPlan = nodeToString(multiPlan);
-
-	multiPlanData = makeNode(Const);
-	multiPlanData->consttype = CSTRINGOID;
-	multiPlanData->constlen = strlen(serializedMultiPlan);
-	multiPlanData->constvalue = CStringGetDatum(serializedMultiPlan);
-	multiPlanData->constbyval = false;
-	multiPlanData->location = -1;
-
-	return (Node *) multiPlanData;
-}
-
-
-/*
- * DeserializeMultiPlan returns the deserialized distributed plan from the string
- * representation in a Const node.
- */
-static MultiPlan *
-DeserializeMultiPlan(Node *node)
-{
-	Const *multiPlanData = NULL;
-	char *serializedMultiPlan = NULL;
-	MultiPlan *multiPlan = NULL;
-
-	Assert(IsA(node, Const));
-	multiPlanData = (Const *) node;
-	serializedMultiPlan = DatumGetCString(multiPlanData->constvalue);
-
-	multiPlan = (MultiPlan *) stringToNode(serializedMultiPlan);
-	Assert(CitusIsA(multiPlan, MultiPlan));
+	multiPlan = (MultiPlan *) node;
 
 	return multiPlan;
 }
@@ -521,7 +474,7 @@ FinalizePlan(PlannedStmt *localPlan, MultiPlan *multiPlan)
 		}
 	}
 
-	multiPlanData = SerializeMultiPlan(multiPlan);
+	multiPlanData = (Node *) multiPlan;
 
 	customScan->custom_private = list_make1(multiPlanData);
 	customScan->flags = CUSTOMPATH_SUPPORT_BACKWARD_SCAN;

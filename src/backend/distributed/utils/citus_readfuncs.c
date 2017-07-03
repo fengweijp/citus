@@ -147,6 +147,8 @@ readJobInfo(Job *local_node)
 {
 	READ_TEMP_LOCALS();
 
+	CitusSetTag((Node *) local_node, T_Job);
+
 	READ_UINT64_FIELD(jobId);
 	READ_NODE_FIELD(jobQuery);
 	READ_NODE_FIELD(taskList);
