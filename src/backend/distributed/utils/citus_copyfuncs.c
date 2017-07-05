@@ -121,13 +121,13 @@ CopyNodeShardInterval(COPYFUNC_ARGS)
 	COPY_SCALAR_FIELD(minValueExists);
 	COPY_SCALAR_FIELD(maxValueExists);
 
-	if (!from->minValueExists)
+	if (from->minValueExists)
 	{
 		newnode->minValue = datumCopy(from->minValue,
 									  from->valueByVal,
 									  from->valueTypeLen);
 	}
-	if (!from->maxValueExists)
+	if (from->maxValueExists)
 	{
 		newnode->maxValue = datumCopy(from->maxValue,
 									  from->valueByVal,
