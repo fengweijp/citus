@@ -75,6 +75,7 @@ static PlannedStmt * FinalizeNonRouterPlan(PlannedStmt *localPlan, MultiPlan *mu
 										   CustomScan *customScan);
 static PlannedStmt * FinalizeRouterPlan(PlannedStmt *localPlan, CustomScan *customScan);
 static void CheckNodeIsDumpable(Node *node);
+static void CheckNodeCopyAndSerialization(Node *node);
 static List * CopyPlanParamList(List *originalPlanParamList);
 static PlannerRestrictionContext * CreateAndPushPlannerRestrictionContext(void);
 static PlannerRestrictionContext * CurrentPlannerRestrictionContext(void);
@@ -418,6 +419,9 @@ GetMultiPlan(CustomScan *customScan)
 	node = (Node *) linitial(customScan->custom_private);
 	Assert(CitusIsA(node, MultiPlan));
 
+	CheckNodeIsDumpable(node);
+	CheckNodeCopyAndSerialization(node);
+
 	multiPlan = (MultiPlan *) node;
 
 	return multiPlan;
@@ -615,6 +619,30 @@ CheckNodeIsDumpable(Node *node)
 #ifdef USE_ASSERT_CHECKING
 	char *out = nodeToString(node);
 	pfree(out);
+#endif
+}
+
+
+/*
+ * CheckNodeCopyAndSerialization checks copy/dump/read functions
+ * for nodes.
+ *
+ * It does not check string equality on node dumps due to differences
+ * in some Postgres types.
+ */
+static void
+CheckNodeCopyAndSerialization(Node *node)
+{
+#ifdef USE_ASSERT_CHECKING
+#if 0
+	char *out = nodeToString(node);
+	Node *deserializedNode = (Node *) stringToNode(out);
+	Node *nodeCopy = copyObject(deserializedNode);
+	char *outCopy = nodeToString(nodeCopy);
+
+	pfree(out);
+	pfree(outCopy);
+#endif
 #endif
 }
 

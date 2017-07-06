@@ -49,6 +49,7 @@ extern READFUNC_RET ReadMapMergeJob(READFUNC_ARGS);
 extern READFUNC_RET ReadShardPlacement(READFUNC_ARGS);
 extern READFUNC_RET ReadRelationShard(READFUNC_ARGS);
 extern READFUNC_RET ReadTask(READFUNC_ARGS);
+extern READFUNC_RET ReadTaskExecution(READFUNC_ARGS);
 extern READFUNC_RET ReadDeferredErrorMessage(READFUNC_ARGS);
 
 extern READFUNC_RET ReadUnsupportedCitusNode(READFUNC_ARGS);
@@ -60,6 +61,7 @@ extern void OutMapMergeJob(OUTFUNC_ARGS);
 extern void OutShardPlacement(OUTFUNC_ARGS);
 extern void OutRelationShard(OUTFUNC_ARGS);
 extern void OutTask(OUTFUNC_ARGS);
+extern void OutTaskExecution(OUTFUNC_ARGS);
 extern void OutDeferredErrorMessage(OUTFUNC_ARGS);
 
 extern void OutMultiNode(OUTFUNC_ARGS);
@@ -80,6 +82,7 @@ extern void CopyNodeMapMergeJob(COPYFUNC_ARGS);
 extern void CopyNodeShardPlacement(COPYFUNC_ARGS);
 extern void CopyNodeRelationShard(COPYFUNC_ARGS);
 extern void CopyNodeTask(COPYFUNC_ARGS);
+extern void CopyNodeTaskExecution(COPYFUNC_ARGS);
 extern void CopyNodeDeferredErrorMessage(COPYFUNC_ARGS);
 
 #endif /* CITUS_NODEFUNCS_H */

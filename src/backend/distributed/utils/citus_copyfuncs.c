@@ -13,6 +13,7 @@
 
 
 #include "distributed/citus_nodefuncs.h"
+#include "distributed/multi_server_executor.h"
 #include "utils/datum.h"
 
 
@@ -58,7 +59,8 @@ CitusSetTag(Node *node, int tag)
 		Size _size = (sz); \
 		newnode->fldname = palloc(_size); \
 		memcpy(newnode->fldname, from->fldname, _size); \
-	} while (0)
+	} \
+	while (0)
 
 /* Copy a parse location field (for Copy, this is same as scalar case) */
 #define COPY_LOCATION_FIELD(fldname) \
@@ -221,6 +223,41 @@ CopyNodeTask(COPYFUNC_ARGS)
 	COPY_SCALAR_FIELD(replicationModel);
 	COPY_SCALAR_FIELD(insertSelectQuery);
 	COPY_NODE_FIELD(relationShardList);
+}
+
+
+void
+CopyNodeTaskExecution(COPYFUNC_ARGS)
+{
+	CITUS_COPY_LOCALS(TaskExecution);
+	int count = from->nodeCount;
+	int i = 0;
+
+	COPY_SCALAR_FIELD(jobId);
+	COPY_SCALAR_FIELD(taskId);
+	COPY_SCALAR_FIELD(nodeCount);
+
+	if (count > 0)
+	{
+		newnode->taskStatusArray = palloc0(sizeof(TaskExecStatus) * count);
+		newnode->transmitStatusArray = palloc0(sizeof(TransmitExecStatus) * count);
+		newnode->connectionIdArray = palloc0(sizeof(int32) * count);
+		newnode->fileDescriptorArray = palloc0(sizeof(int32) * count);
+	}
+
+	for (i = 0; i < count; i++)
+	{
+		COPY_SCALAR_FIELD(taskStatusArray[i]);
+		COPY_SCALAR_FIELD(transmitStatusArray[i]);
+		COPY_SCALAR_FIELD(connectionIdArray[i]);
+		COPY_SCALAR_FIELD(fileDescriptorArray[i]);
+	}
+
+	COPY_SCALAR_FIELD(connectStartTime);
+	COPY_SCALAR_FIELD(currentNodeIndex);
+	COPY_SCALAR_FIELD(querySourceNodeIndex);
+	COPY_SCALAR_FIELD(dataFetchTaskIndex);
+	COPY_SCALAR_FIELD(failureCount);
 }
 
 
