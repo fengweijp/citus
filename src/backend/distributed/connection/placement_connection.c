@@ -346,8 +346,10 @@ StartPlacementListConnection(uint32 flags, List *placementAccessList,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
-					 errmsg("cannot perform DDL on a placement which has been read over "
-							"multiple connections")));
+					 errmsg(
+						 "cannot perform DDL on placement %ld, which has been read over "
+						 "multiple connections",
+						 placement->placementId)));
 		}
 		else if (accessType == PLACEMENT_ACCESS_DDL && colocatedEntry != NULL &&
 				 colocatedEntry->hasSecondaryConnections)
@@ -363,8 +365,9 @@ StartPlacementListConnection(uint32 flags, List *placementAccessList,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
-					 errmsg("cannot perform DDL on a placement if a co-located placement "
-							"has been read over multiple connections")));
+					 errmsg("cannot perform DDL on placement %ld since a co-located "
+							"placement has been read over multiple connections",
+							placement->placementId)));
 		}
 		else if (foundModifyingConnection)
 		{
@@ -416,8 +419,9 @@ StartPlacementListConnection(uint32 flags, List *placementAccessList,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
-					 errmsg("cannot establish new placement connection when DDL has "
-							"been executed on existing placement connection")));
+					 errmsg("cannot establish a new connection for placement %ld, since "
+							"DDL has been executed on a connection that is in use",
+							placement->placementId)));
 		}
 		else if (placementConnection->hadDML)
 		{
@@ -437,8 +441,9 @@ StartPlacementListConnection(uint32 flags, List *placementAccessList,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
-					 errmsg("cannot establish new placement connection when DML has "
-							"been executed on existing placement connection")));
+					 errmsg("cannot establish a new connection for placement %ld, since "
+							"DML has been executed on a connection that is in use",
+							placement->placementId)));
 		}
 		else if (accessType == PLACEMENT_ACCESS_DDL)
 		{
@@ -455,7 +460,7 @@ StartPlacementListConnection(uint32 flags, List *placementAccessList,
 
 			ereport(ERROR,
 					(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
-					 errmsg("cannot perform parallel DDL command because multiple "
+					 errmsg("cannot perform a parallel DDL command because multiple "
 							"placements have been accessed over the same connection")));
 		}
 		else
