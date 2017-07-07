@@ -597,7 +597,7 @@ PrunableExpressionsWalker(Node *node, ClauseWalkerContext *context)
 				op->opno = arrayOperatorExpression->opno;
 				op->opfuncid = arrayOperatorExpression->opfuncid;
 				op->inputcollid = arrayOperatorExpression->inputcollid;
-				op->opresulttype = BOOLOID; /* FIXME: */
+				op->opresulttype = get_func_rettype(arrayOperatorExpression->opfuncid);
 				op->opcollid = DEFAULT_COLLATION_OID;
 				op->location = -1;
 
